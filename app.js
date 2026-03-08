@@ -368,7 +368,7 @@ function taskCardHtml(t) {
   `;
 }
 
-App.openTaskModal = function (id) {
+App.openTaskModal = function (id, projectId = '') {
   const task = id ? DB.tasks.find(t => t.id === id) : null;
   document.getElementById('taskModalTitle').textContent = task ? 'Edit Task' : 'New Task';
   document.getElementById('taskId').value = task?.id || '';
@@ -379,7 +379,7 @@ App.openTaskModal = function (id) {
   document.getElementById('taskDueDate').value = task?.dueDate || '';
   document.getElementById('taskEstHours').value = task?.estHours || '';
   document.getElementById('taskTags').value = task?.tags || '';
-  populateProjectSelect('taskProject', task?.project);
+  populateProjectSelect('taskProject', task?.project || projectId);
   openModal('taskModal');
 };
 
@@ -414,6 +414,8 @@ App.saveTask = function () {
   save();
   App.closeModal();
   renderTasks();
+  renderProjects();
+  renderDashboard();
 };
 
 App.deleteTask = function (id) {
@@ -423,6 +425,8 @@ App.deleteTask = function (id) {
   logActivity(`Deleted task: ${task?.title}`);
   save();
   renderTasks();
+  renderProjects();
+  renderDashboard();
   toast('Task deleted');
 };
 
@@ -434,6 +438,7 @@ App.toggleTask = function (id, cb) {
   logActivity(`${cb.checked ? 'Completed' : 'Reopened'} task: ${task.title}`);
   save();
   renderTasks();
+  renderProjects();
   renderDashboard();
 };
 
@@ -471,7 +476,9 @@ function renderProjects() {
 
 function projectCardHtml(p) {
   const tasks = DB.tasks.filter(t => t.project === p.id);
-  const issues = DB.issues.filter(i => i.project === p.id && i.status === 'open');
+  const openIssues = DB.issues.filter(i => i.project === p.id && i.status === 'open');
+  const projectIssues = DB.issues.filter(i => i.project === p.id)
+    .sort((a, b) => priorityOrder(a.priority) - priorityOrder(b.priority));
   const reqs = p.requirements || [];
   const doneReqs = reqs.filter(r => r.status === 'done').length;
   const pct = reqs.length ? Math.round(doneReqs / reqs.length * 100) : 0;
@@ -514,12 +521,50 @@ function projectCardHtml(p) {
           </ul>
         </div>
       ` : ''}
+      ${tasks.length ? `
+        <div class="project-card-body project-linked-tasks">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:12px;font-weight:600;color:var(--text2)">Assigned Tasks</span>
+            <span style="font-size:11px;color:var(--text3)">${tasks.length}</span>
+          </div>
+          <ul class="project-task-list">
+            ${tasks.slice(0, 5).map(t => `
+              <li class="project-task-item" onclick="App.openTaskModal('${t.id}')">
+                <span class="project-task-title">${t.title}</span>
+                ${badgeHtml(t.status, statusLabel(t.status))}
+              </li>
+            `).join('')}
+            ${tasks.length > 5 ? `<li class="project-task-more">+${tasks.length - 5} more</li>` : ''}
+          </ul>
+        </div>
+      ` : ''}
+      ${projectIssues.length ? `
+        <div class="project-card-body project-linked-issues">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:12px;font-weight:600;color:var(--text2)">Assigned Issues</span>
+            <span style="font-size:11px;color:var(--text3)">${projectIssues.length}</span>
+          </div>
+          <ul class="project-issue-list">
+            ${projectIssues.slice(0, 5).map(i => `
+              <li class="project-issue-item" onclick="App.openIssueModal('${i.id}')">
+                <span class="project-issue-title">${i.title}</span>
+                ${badgeHtml(i.status, statusLabel(i.status))}
+              </li>
+            `).join('')}
+            ${projectIssues.length > 5 ? `<li class="project-issue-more">+${projectIssues.length - 5} more</li>` : ''}
+          </ul>
+        </div>
+      ` : ''}
       <div class="project-card-footer">
         <div class="project-stats">
           <span>&#9744; ${tasks.length} tasks</span>
-          <span>&#9651; ${issues} open issues</span>
+          <span>&#9651; ${openIssues.length} open issues</span>
         </div>
-        <button class="btn-sm" onclick="App.openProjectModal('${p.id}')">Edit</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn-sm" onclick="App.openTaskModal('', '${p.id}')">+ Task</button>
+          <button class="btn-sm" onclick="App.openIssueModal('', '${p.id}')">+ Issue</button>
+          <button class="btn-sm" onclick="App.openProjectModal('${p.id}')">Edit</button>
+        </div>
       </div>
     </div>
   `;
@@ -715,7 +760,7 @@ function renderIssues() {
   }).join('');
 }
 
-App.openIssueModal = function (id) {
+App.openIssueModal = function (id, projectId = '') {
   const issue = id ? DB.issues.find(i => i.id === id) : null;
   document.getElementById('issueModalTitle').textContent = issue ? 'Edit Issue' : 'New Issue';
   document.getElementById('issueId').value = issue?.id || '';
@@ -727,7 +772,7 @@ App.openIssueModal = function (id) {
   document.getElementById('issueAssignee').value = issue?.assignee || '';
   document.getElementById('issueTags').value = issue?.tags || '';
   document.getElementById('issueSteps').value = issue?.steps || '';
-  populateProjectSelect('issueProject', issue?.project);
+  populateProjectSelect('issueProject', issue?.project || projectId);
   // Populate metadata editor
   const metaList = document.getElementById('issueMetaList');
   metaList.innerHTML = (issue?.metadata || []).map(m => metaInputRowHtml(m)).join('');
@@ -767,6 +812,8 @@ App.saveIssue = function () {
   save();
   App.closeModal();
   renderIssues();
+  renderProjects();
+  renderDashboard();
 };
 
 App.deleteIssue = function (id) {
@@ -776,6 +823,8 @@ App.deleteIssue = function (id) {
   logActivity(`Deleted issue: ${issue?.title}`);
   save();
   renderIssues();
+  renderProjects();
+  renderDashboard();
   toast('Issue deleted');
 };
 
