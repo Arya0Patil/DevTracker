@@ -139,7 +139,7 @@
         <thead>
           <tr>
             <th>ID</th><th>Title</th><th>Type</th><th>Project</th>
-            <th>Priority</th><th>Status</th><th>Metadata</th><th>Created</th><th>Actions</th>
+            <th>Priority</th><th>Status</th><th>Aging / SLA</th><th>Metadata</th><th>Created</th><th>Actions</th>
           </tr>
         </thead>
         <tbody id="issuesTableBody"></tbody>
@@ -394,6 +394,16 @@
       </div>
     </div>
     <div class="form-row">
+      <div class="form-group">
+        <label>Due Date</label>
+        <input type="date" id="issueDueDate">
+      </div>
+      <div class="form-group">
+        <label>SLA (days)</label>
+        <input type="number" id="issueSlaDays" min="1" step="1" placeholder="e.g. 7">
+      </div>
+    </div>
+    <div class="form-row">
       <div class="form-group full">
         <label>Steps to Reproduce</label>
         <textarea id="issueSteps" placeholder="1. Go to...\n2. Click...\n3. See error" rows="3"></textarea>
@@ -410,6 +420,30 @@
   <div class="modal-footer">
     <button class="btn-secondary" onclick="App.closeModal()">Cancel</button>
     <button class="btn-primary" onclick="App.saveIssue()">Save Issue</button>
+  </div>
+</div>
+
+<!-- Project Drilldown Modal -->
+<div class="modal modal-wide" id="projectDrillModal">
+  <div class="modal-header">
+    <h2 id="projectDrillTitle">Project Details</h2>
+    <button class="modal-close" onclick="App.closeModal()">&#10005;</button>
+  </div>
+  <div class="modal-body">
+    <div class="project-drill-meta" id="projectDrillMeta"></div>
+    <div class="project-drill-tabs" id="projectDrillTabs">
+      <button class="btn-sm active" data-tab="tasks" onclick="App.switchProjectDrillTab('tasks')">Tasks</button>
+      <button class="btn-sm" data-tab="issues" onclick="App.switchProjectDrillTab('issues')">Issues</button>
+      <button class="btn-sm" data-tab="requirements" onclick="App.switchProjectDrillTab('requirements')">Requirements</button>
+      <button class="btn-sm" data-tab="timelogs" onclick="App.switchProjectDrillTab('timelogs')">Time Logs</button>
+    </div>
+    <div id="projectDrillContent"></div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-secondary" onclick="App.closeModal()">Close</button>
+    <button class="btn-sm" onclick="App.closeModal();App.openTaskModal('', App.projectDrillProjectId)">+ Task</button>
+    <button class="btn-sm" onclick="App.closeModal();App.openIssueModal('', App.projectDrillProjectId)">+ Issue</button>
+    <button class="btn-primary" onclick="App.closeModal();App.openProjectModal(App.projectDrillProjectId)">Edit Project</button>
   </div>
 </div>
 

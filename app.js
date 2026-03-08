@@ -34,6 +34,52 @@ function formatDate(str) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function daysBetween(fromDate, toDate) {
+  const from = new Date(`${fromDate}T00:00:00`);
+  const to = new Date(`${toDate}T00:00:00`);
+  return Math.floor((to - from) / 86400000);
+}
+
+function issueAgeDays(issue) {
+  const created = issue.createdAt?.slice(0, 10) || today();
+  return Math.max(0, daysBetween(created, today()));
+}
+
+function issueSlaDueDate(issue) {
+  if (!issue.slaDays) return '';
+  const days = parseInt(issue.slaDays, 10);
+  if (!Number.isFinite(days) || days <= 0) return '';
+  const created = issue.createdAt?.slice(0, 10) || today();
+  const due = new Date(`${created}T00:00:00`);
+  due.setDate(due.getDate() + days);
+  return due.toISOString().slice(0, 10);
+}
+
+function issueIsOpen(issue) {
+  return issue.status === 'open' || issue.status === 'inprogress';
+}
+
+function issueIsBreached(issue) {
+  if (!issueIsOpen(issue)) return false;
+  const due = issue.dueDate || issueSlaDueDate(issue);
+  return !!due && due < today();
+}
+
+function issueIsStale(issue) {
+  return issueIsOpen(issue) && issueAgeDays(issue) >= 14;
+}
+
+function issueAgingHtml(issue) {
+  const age = issueAgeDays(issue);
+  const due = issue.dueDate || issueSlaDueDate(issue);
+  const chips = [`<span class="issue-age-chip">Age ${age}d</span>`];
+  if (due) {
+    chips.push(`<span class="issue-age-chip ${issueIsBreached(issue) ? 'breach' : 'due'}">${issueIsBreached(issue) ? 'Breached' : `Due ${formatDate(due)}`}</span>`);
+  }
+  if (issueIsStale(issue)) chips.push('<span class="issue-age-chip stale">Stale</span>');
+  return `<div class="issue-aging">${chips.join('')}</div>`;
+}
+
 function isOverdue(dateStr) {
   if (!dateStr) return false;
   return dateStr < today();
@@ -150,11 +196,31 @@ function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) DB = JSON.parse(raw);
+    normalizeDB();
     const act = localStorage.getItem(ACTIVITY_KEY);
     if (act) activity = JSON.parse(act);
   } catch (e) {
     console.warn('Load error', e);
   }
+}
+
+function normalizeDB() {
+  DB = DB || {};
+  DB.tasks = Array.isArray(DB.tasks) ? DB.tasks : [];
+  DB.projects = Array.isArray(DB.projects) ? DB.projects : [];
+  DB.issues = Array.isArray(DB.issues) ? DB.issues : [];
+  DB.timeLogs = Array.isArray(DB.timeLogs) ? DB.timeLogs : [];
+  DB.standups = Array.isArray(DB.standups) ? DB.standups : [];
+  DB.notes = Array.isArray(DB.notes) ? DB.notes : [];
+
+  DB.projects.forEach(p => {
+    if (!Array.isArray(p.requirements)) p.requirements = [];
+  });
+  DB.issues.forEach(i => {
+    if (!Array.isArray(i.metadata)) i.metadata = [];
+    if (typeof i.dueDate !== 'string') i.dueDate = i.dueDate ? String(i.dueDate) : '';
+    if (typeof i.slaDays !== 'string' && typeof i.slaDays !== 'number') i.slaDays = '';
+  });
 }
 
 function logActivity(text) {
@@ -180,6 +246,14 @@ function openModal(id) {
 }
 
 const App = {};
+App.projectDrillProjectId = '';
+App.projectDrillTab = 'tasks';
+
+function maybeRenderProjectDrilldown() {
+  if (currentModal === 'projectDrillModal' && App.projectDrillProjectId) {
+    renderProjectDrilldown();
+  }
+}
 
 App.addIssueMeta = function () {
   const el = document.getElementById('issueMetaList');
@@ -416,6 +490,7 @@ App.saveTask = function () {
   renderTasks();
   renderProjects();
   renderDashboard();
+  maybeRenderProjectDrilldown();
 };
 
 App.deleteTask = function (id) {
@@ -427,6 +502,7 @@ App.deleteTask = function (id) {
   renderTasks();
   renderProjects();
   renderDashboard();
+  maybeRenderProjectDrilldown();
   toast('Task deleted');
 };
 
@@ -440,6 +516,7 @@ App.toggleTask = function (id, cb) {
   renderTasks();
   renderProjects();
   renderDashboard();
+  maybeRenderProjectDrilldown();
 };
 
 // ===== Projects =====
@@ -485,19 +562,19 @@ function projectCardHtml(p) {
   const stack = (p.stack || '').split(',').map(s => s.trim()).filter(Boolean);
 
   return `
-    <div class="project-card">
+    <div class="project-card" onclick="App.openProjectDrilldown('${p.id}')">
       <div class="project-card-header">
         <div class="project-card-title">
           <span>${p.name}</span>
           <div style="display:flex;gap:6px;align-items:center">
             ${badgeHtml(p.status, statusLabel(p.status))}
-            <button class="btn-edit" onclick="App.openProjectModal('${p.id}')" title="Edit">&#9998;</button>
-            <button class="btn-danger" onclick="App.deleteProject('${p.id}')" title="Delete">&#10005;</button>
+            <button class="btn-edit" onclick="event.stopPropagation();App.openProjectModal('${p.id}')" title="Edit">&#9998;</button>
+            <button class="btn-danger" onclick="event.stopPropagation();App.deleteProject('${p.id}')" title="Delete">&#10005;</button>
           </div>
         </div>
         ${p.description ? `<div class="project-card-desc">${p.description}</div>` : ''}
         ${stack.length ? `<div class="project-stack">${stack.map(s=>`<span class="stack-tag">${s}</span>`).join('')}</div>` : ''}
-        ${p.repo ? `<div style="margin-top:8px;font-size:11px;color:var(--text3)">&#9741; <a href="${p.repo}" target="_blank" style="color:var(--accent)">${p.repo}</a></div>` : ''}
+        ${p.repo ? `<div style="margin-top:8px;font-size:11px;color:var(--text3)">&#9741; <a href="${p.repo}" target="_blank" style="color:var(--accent)" onclick="event.stopPropagation()">${p.repo}</a></div>` : ''}
         ${p.dueDate ? `<div style="margin-top:6px;font-size:11px;color:${isOverdue(p.dueDate)?'var(--danger)':'var(--text3)'}">Due: ${formatDate(p.dueDate)}</div>` : ''}
       </div>
       ${reqs.length ? `
@@ -510,7 +587,7 @@ function projectCardHtml(p) {
           <ul class="req-list" style="margin-top:10px">
             ${reqs.slice(0, 5).map(r => `
               <li class="req-item ${r.status==='done'?'done-req':''}">
-                <input type="checkbox" ${r.status==='done'?'checked':''}
+                <input type="checkbox" ${r.status==='done'?'checked':''} onclick="event.stopPropagation()"
                   onchange="App.toggleReq('${p.id}','${r.id}',this)">
                 <span class="req-item-title">${r.title}</span>
                 ${badgeHtml(r.priority||'medium', r.priority||'medium')}
@@ -529,7 +606,7 @@ function projectCardHtml(p) {
           </div>
           <ul class="project-task-list">
             ${tasks.slice(0, 5).map(t => `
-              <li class="project-task-item" onclick="App.openTaskModal('${t.id}')">
+              <li class="project-task-item" onclick="event.stopPropagation();App.openTaskModal('${t.id}')">
                 <span class="project-task-title">${t.title}</span>
                 ${badgeHtml(t.status, statusLabel(t.status))}
               </li>
@@ -546,7 +623,7 @@ function projectCardHtml(p) {
           </div>
           <ul class="project-issue-list">
             ${projectIssues.slice(0, 5).map(i => `
-              <li class="project-issue-item" onclick="App.openIssueModal('${i.id}')">
+              <li class="project-issue-item" onclick="event.stopPropagation();App.openIssueModal('${i.id}')">
                 <span class="project-issue-title">${i.title}</span>
                 ${badgeHtml(i.status, statusLabel(i.status))}
               </li>
@@ -561,13 +638,129 @@ function projectCardHtml(p) {
           <span>&#9651; ${openIssues.length} open issues</span>
         </div>
         <div style="display:flex;gap:6px">
-          <button class="btn-sm" onclick="App.openTaskModal('', '${p.id}')">+ Task</button>
-          <button class="btn-sm" onclick="App.openIssueModal('', '${p.id}')">+ Issue</button>
-          <button class="btn-sm" onclick="App.openProjectModal('${p.id}')">Edit</button>
+          <button class="btn-sm" onclick="event.stopPropagation();App.openTaskModal('', '${p.id}')">+ Task</button>
+          <button class="btn-sm" onclick="event.stopPropagation();App.openIssueModal('', '${p.id}')">+ Issue</button>
+          <button class="btn-sm" onclick="event.stopPropagation();App.openProjectModal('${p.id}')">Edit</button>
         </div>
       </div>
     </div>
   `;
+}
+
+App.openProjectDrilldown = function (id, tab = 'tasks') {
+  App.projectDrillProjectId = id;
+  App.projectDrillTab = tab;
+  renderProjectDrilldown();
+  openModal('projectDrillModal');
+};
+
+App.switchProjectDrillTab = function (tab) {
+  App.projectDrillTab = tab;
+  renderProjectDrilldown();
+};
+
+function renderProjectDrilldown() {
+  const proj = DB.projects.find(p => p.id === App.projectDrillProjectId);
+  if (!proj) return;
+  const tasks = DB.tasks.filter(t => t.project === proj.id);
+  const issues = DB.issues.filter(i => i.project === proj.id);
+  const reqs = proj.requirements || [];
+  const logs = DB.timeLogs.filter(l => l.project === proj.id);
+  const totalHours = logs.reduce((a, l) => a + (parseFloat(l.hours) || 0), 0);
+
+  document.getElementById('projectDrillTitle').textContent = proj.name;
+  document.getElementById('projectDrillMeta').innerHTML = `
+    <span>${badgeHtml(proj.status, statusLabel(proj.status))}</span>
+    <span>&#9744; ${tasks.length} tasks</span>
+    <span>&#9651; ${issues.length} issues</span>
+    <span>&#9670; ${reqs.length} requirements</span>
+    <span>&#9711; ${totalHours.toFixed(1)}h logged</span>
+  `;
+
+  const tabs = ['tasks', 'issues', 'requirements', 'timelogs'];
+  const tabEl = document.getElementById('projectDrillTabs');
+  tabs.forEach(tab => {
+    const btn = tabEl.querySelector(`button[data-tab="${tab}"]`);
+    if (btn) btn.classList.toggle('active', tab === App.projectDrillTab);
+  });
+
+  const content = document.getElementById('projectDrillContent');
+  if (App.projectDrillTab === 'tasks') {
+    const sorted = [...tasks].sort((a, b) => priorityOrder(a.priority) - priorityOrder(b.priority));
+    content.innerHTML = sorted.length ? `
+      <table class="data-table">
+        <thead><tr><th>Title</th><th>Priority</th><th>Status</th><th>Due</th><th></th></tr></thead>
+        <tbody>
+          ${sorted.map(t => `
+            <tr>
+              <td>${t.title}</td>
+              <td>${badgeHtml(t.priority, t.priority)}</td>
+              <td>${badgeHtml(t.status, statusLabel(t.status))}</td>
+              <td>${t.dueDate ? formatDate(t.dueDate) : '—'}</td>
+              <td><button class="btn-edit" onclick="App.closeModal();App.openTaskModal('${t.id}')" title="Edit">&#9998;</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    ` : `<div class="empty-state"><div class="empty-icon">&#9744;</div><p>No tasks linked to this project</p></div>`;
+    return;
+  }
+
+  if (App.projectDrillTab === 'issues') {
+    const sorted = [...issues].sort((a, b) => priorityOrder(a.priority) - priorityOrder(b.priority));
+    content.innerHTML = sorted.length ? `
+      <table class="data-table">
+        <thead><tr><th>Title</th><th>Type</th><th>Priority</th><th>Status</th><th>Aging / SLA</th><th></th></tr></thead>
+        <tbody>
+          ${sorted.map(i => `
+            <tr class="${issueIsStale(i) ? 'issue-row-stale' : ''}">
+              <td>${i.title}</td>
+              <td>${badgeHtml(i.type, typeLabel(i.type))}</td>
+              <td>${badgeHtml(i.priority, i.priority)}</td>
+              <td>${badgeHtml(i.status, statusLabel(i.status))}</td>
+              <td>${issueAgingHtml(i)}</td>
+              <td><button class="btn-edit" onclick="App.closeModal();App.openIssueModal('${i.id}')" title="Edit">&#9998;</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    ` : `<div class="empty-state"><div class="empty-icon">&#9651;</div><p>No issues linked to this project</p></div>`;
+    return;
+  }
+
+  if (App.projectDrillTab === 'requirements') {
+    content.innerHTML = reqs.length ? `
+      <ul class="req-list">
+        ${reqs.map(r => `
+          <li class="req-item ${r.status==='done'?'done-req':''}">
+            <span class="req-item-title">${r.title}</span>
+            ${badgeHtml(r.priority || 'medium', r.priority || 'medium')}
+            ${badgeHtml(r.status || 'todo', statusLabel(r.status || 'todo'))}
+            ${metaChipsHtml(r.metadata)}
+          </li>
+        `).join('')}
+      </ul>
+    ` : `<div class="empty-state"><div class="empty-icon">&#9670;</div><p>No requirements defined for this project</p></div>`;
+    return;
+  }
+
+  const sortedLogs = [...logs].sort((a, b) => b.date.localeCompare(a.date));
+  content.innerHTML = sortedLogs.length ? `
+    <table class="data-table">
+      <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Hours</th><th></th></tr></thead>
+      <tbody>
+        ${sortedLogs.map(l => `
+          <tr>
+            <td>${formatDate(l.date)}</td>
+            <td>${l.description}</td>
+            <td>${badgeHtml(l.category || 'other', l.category || 'other')}</td>
+            <td>${fmtHours(l.hours)}</td>
+            <td><button class="btn-edit" onclick="App.closeModal();App.openTimeLogModal('${l.id}')" title="Edit">&#9998;</button></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  ` : `<div class="empty-state"><div class="empty-icon">&#9711;</div><p>No time logs linked to this project</p></div>`;
 }
 
 App.openProjectModal = function (id) {
@@ -673,6 +866,7 @@ App.saveProject = function () {
   App.closeModal();
   renderProjects();
   updateProjectDropdowns();
+  maybeRenderProjectDrilldown();
 };
 
 App.deleteProject = function (id) {
@@ -683,6 +877,7 @@ App.deleteProject = function (id) {
   save();
   renderProjects();
   updateProjectDropdowns();
+  maybeRenderProjectDrilldown();
   toast('Project deleted');
 };
 
@@ -694,6 +889,7 @@ App.toggleReq = function (projId, reqId, cb) {
     req.status = cb.checked ? 'done' : 'todo';
     save();
     renderProjects();
+    maybeRenderProjectDrilldown();
   }
 };
 
@@ -733,13 +929,13 @@ function renderIssues() {
 
   const tbody = document.getElementById('issuesTableBody');
   if (issues.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">&#9651;</div><p>No issues found</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">&#9651;</div><p>No issues found</p></div></td></tr>`;
     return;
   }
   tbody.innerHTML = issues.map((i, idx) => {
     const proj = DB.projects.find(p => p.id === i.project);
     return `
-      <tr>
+      <tr class="${issueIsStale(i) ? 'issue-row-stale' : ''}">
         <td><span class="issue-id">#${String(idx + 1).padStart(3, '0')}</span></td>
         <td>
           <div style="font-weight:500">${i.title}</div>
@@ -749,6 +945,7 @@ function renderIssues() {
         <td>${proj ? proj.name : '—'}</td>
         <td>${badgeHtml(i.priority, i.priority)}</td>
         <td>${badgeHtml(i.status, statusLabel(i.status))}</td>
+        <td>${issueAgingHtml(i)}</td>
         <td>${metaChipsHtml(i.metadata)}</td>
         <td style="color:var(--text3);font-size:12px">${formatDate(i.createdAt?.slice(0,10))}</td>
         <td>
@@ -771,6 +968,8 @@ App.openIssueModal = function (id, projectId = '') {
   document.getElementById('issueStatus').value = issue?.status || 'open';
   document.getElementById('issueAssignee').value = issue?.assignee || '';
   document.getElementById('issueTags').value = issue?.tags || '';
+  document.getElementById('issueDueDate').value = issue?.dueDate || '';
+  document.getElementById('issueSlaDays').value = issue?.slaDays || '';
   document.getElementById('issueSteps').value = issue?.steps || '';
   populateProjectSelect('issueProject', issue?.project || projectId);
   // Populate metadata editor
@@ -794,6 +993,8 @@ App.saveIssue = function () {
     status: document.getElementById('issueStatus').value,
     assignee: document.getElementById('issueAssignee').value.trim(),
     tags: document.getElementById('issueTags').value.trim(),
+    dueDate: document.getElementById('issueDueDate').value,
+    slaDays: document.getElementById('issueSlaDays').value,
     steps: document.getElementById('issueSteps').value.trim(),
     metadata: collectMeta('issueMetaList'),
     createdAt: isNew ? new Date().toISOString() : DB.issues.find(i=>i.id===id)?.createdAt,
@@ -814,6 +1015,7 @@ App.saveIssue = function () {
   renderIssues();
   renderProjects();
   renderDashboard();
+  maybeRenderProjectDrilldown();
 };
 
 App.deleteIssue = function (id) {
@@ -825,6 +1027,7 @@ App.deleteIssue = function (id) {
   renderIssues();
   renderProjects();
   renderDashboard();
+  maybeRenderProjectDrilldown();
   toast('Issue deleted');
 };
 
@@ -923,6 +1126,7 @@ App.saveTimeLog = function () {
   save();
   App.closeModal();
   renderTimelog();
+  maybeRenderProjectDrilldown();
 };
 
 App.deleteTimeLog = function (id) {
@@ -930,6 +1134,7 @@ App.deleteTimeLog = function (id) {
   DB.timeLogs = DB.timeLogs.filter(l => l.id !== id);
   save();
   renderTimelog();
+  maybeRenderProjectDrilldown();
   toast('Entry deleted');
 };
 
@@ -1189,7 +1394,7 @@ App.exportAll = function () {
     ID: i.id, Title: i.title, Description: i.description,
     Project: DB.projects.find(p=>p.id===i.project)?.name || '',
     Type: i.type, Priority: i.priority, Status: i.status,
-    Assignee: i.assignee, Tags: i.tags, Steps: i.steps,
+    Assignee: i.assignee, Tags: i.tags, 'Due Date': i.dueDate || '', 'SLA Days': i.slaDays || '', Steps: i.steps,
     Metadata: (i.metadata || []).map(m => `${m.key}=${m.value}`).join('; '),
     'Created At': i.createdAt, 'Updated At': i.updatedAt
   }));
@@ -1258,7 +1463,7 @@ App.importExcel = function (file) {
           const exists = row.ID && DB.tasks.find(t => t.id === row.ID);
           const proj = DB.projects.find(p => p.name === row.Project);
           const task = {
-            id: (row.ID && !exists) ? row.ID : uid(),
+            id: row.ID || uid(),
             title: row.Title || '', description: row.Description || '',
             project: proj?.id || '', priority: row.Priority || 'medium',
             status: row.Status || 'todo', dueDate: row['Due Date'] || '',
@@ -1278,7 +1483,7 @@ App.importExcel = function (file) {
           if (!row.Name) return;
           const exists = row.ID && DB.projects.find(p => p.id === row.ID);
           const proj = {
-            id: (row.ID && !exists) ? row.ID : uid(),
+            id: row.ID || uid(),
             name: row.Name || '', description: row.Description || '',
             status: row.Status || 'active', dueDate: row['Due Date'] || '',
             repo: row.Repo || '', stack: row['Tech Stack'] || '',
@@ -1335,11 +1540,13 @@ App.importExcel = function (file) {
               }).filter(Boolean)
             : (exists ? DB.issues.find(i=>i.id===row.ID)?.metadata || [] : []);
           const issue = {
-            id: (row.ID && !exists) ? row.ID : uid(),
+            id: row.ID || uid(),
             title: row.Title || '', description: row.Description || '',
             project: proj?.id || '', type: row.Type || 'bug',
             priority: row.Priority || 'medium', status: row.Status || 'open',
-            assignee: row.Assignee || '', tags: row.Tags || '', steps: row.Steps || '',
+            assignee: row.Assignee || '', tags: row.Tags || '',
+            dueDate: row['Due Date'] || '', slaDays: row['SLA Days'] || '',
+            steps: row.Steps || '',
             metadata,
             createdAt: row['Created At'] || new Date().toISOString(),
             updatedAt: row['Updated At'] || new Date().toISOString(),
@@ -1353,7 +1560,7 @@ App.importExcel = function (file) {
       if (wb.SheetNames.includes('Issue Metadata')) {
         const rows = XLSX.utils.sheet_to_json(wb.Sheets['Issue Metadata']);
         rows.forEach(row => {
-          if (!row['Issue ID'] || !row.Key || !row.Value) return;
+          if (!row['Issue ID'] || row.Key == null || row.Value == null) return;
           const issue = DB.issues.find(i => i.id === row['Issue ID']);
           if (!issue) return;
           if (!issue.metadata) issue.metadata = [];
@@ -1367,7 +1574,7 @@ App.importExcel = function (file) {
       if (wb.SheetNames.includes('Req Metadata')) {
         const rows = XLSX.utils.sheet_to_json(wb.Sheets['Req Metadata']);
         rows.forEach(row => {
-          if (!row['Req ID'] || !row.Key || !row.Value) return;
+          if (!row['Req ID'] || row.Key == null || row.Value == null) return;
           DB.projects.forEach(p => {
             const req = (p.requirements || []).find(r => r.id === row['Req ID']);
             if (!req) return;
@@ -1431,6 +1638,7 @@ App.importExcel = function (file) {
         });
       }
 
+      normalizeDB();
       save();
       updateProjectDropdowns();
       const total = Object.values(imported).reduce((a,b)=>a+b,0);
@@ -1554,8 +1762,8 @@ function init() {
       { id: uid(), title: 'Set up CI/CD pipeline', project: projId, priority: 'low', status: 'done', dueDate: '', tags: 'devops', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     );
     DB.issues.push(
-      { id: uid(), title: 'Login form throws 500 on empty password', project: projId, type: 'bug', priority: 'critical', status: 'open', assignee: '', tags: 'auth,backend', description: 'Submitting login form with empty password field causes a 500 error.', steps: '1. Go to /login\n2. Leave password empty\n3. Click Submit', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      { id: uid(), title: 'Add dark mode support', project: projId, type: 'feature', priority: 'medium', status: 'open', assignee: '', tags: 'ui', description: 'Users have requested a dark mode toggle.', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: uid(), title: 'Login form throws 500 on empty password', project: projId, type: 'bug', priority: 'critical', status: 'open', assignee: '', tags: 'auth,backend', dueDate: '', slaDays: 3, description: 'Submitting login form with empty password field causes a 500 error.', steps: '1. Go to /login\n2. Leave password empty\n3. Click Submit', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: uid(), title: 'Add dark mode support', project: projId, type: 'feature', priority: 'medium', status: 'open', assignee: '', tags: 'ui', dueDate: '', slaDays: 14, description: 'Users have requested a dark mode toggle.', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     );
     DB.timeLogs.push(
       { id: uid(), description: 'Implemented dashboard layout', project: projId, date: today(), hours: 2.5, category: 'development', notes: '', createdAt: new Date().toISOString() },
