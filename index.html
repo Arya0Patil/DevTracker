@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DevTracker — Developer Day-to-Day Tracker</title>
+<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="theme-dark">
+
+<!-- Sidebar -->
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="logo">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect width="28" height="28" rx="6" fill="#6366f1"/><path d="M7 14l4 4 10-10" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="logo-text">DevTracker</span>
+    </div>
+    <button class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar">&#9776;</button>
+  </div>
+  <ul class="nav-links">
+    <li><a href="#" class="nav-item active" data-view="dashboard"><span class="nav-icon">&#9675;</span><span class="nav-label">Dashboard</span></a></li>
+    <li><a href="#" class="nav-item" data-view="tasks"><span class="nav-icon">&#9744;</span><span class="nav-label">Tasks</span></a></li>
+    <li><a href="#" class="nav-item" data-view="projects"><span class="nav-icon">&#9632;</span><span class="nav-label">Projects</span></a></li>
+    <li><a href="#" class="nav-item" data-view="issues"><span class="nav-icon">&#9651;</span><span class="nav-label">Issues</span></a></li>
+    <li><a href="#" class="nav-item" data-view="timelog"><span class="nav-icon">&#9711;</span><span class="nav-label">Time Log</span></a></li>
+    <li><a href="#" class="nav-item" data-view="standup"><span class="nav-icon">&#9670;</span><span class="nav-label">Standup</span></a></li>
+    <li><a href="#" class="nav-item" data-view="notes"><span class="nav-icon">&#9741;</span><span class="nav-label">Notes</span></a></li>
+  </ul>
+  <div class="sidebar-footer">
+    <button class="btn-icon" id="themeToggle" title="Toggle theme">&#9788;</button>
+    <button class="btn-icon" id="exportAllBtn" title="Export all to Excel">&#8659; Excel</button>
+    <label class="btn-icon" title="Import from Excel" style="cursor:pointer">&#8657; Import<input type="file" id="importFile" accept=".xlsx,.xls" style="display:none"></label>
+  </div>
+</nav>
+
+<!-- Main Content -->
+<main class="main-content" id="mainContent">
+
+  <!-- Dashboard -->
+  <section class="view active" id="view-dashboard">
+    <div class="view-header">
+      <h1>Dashboard</h1>
+      <span class="date-display" id="dashDate"></span>
+    </div>
+    <div class="stats-grid" id="statsGrid"></div>
+    <div class="dashboard-grid">
+      <div class="card">
+        <div class="card-header"><h3>Today's Tasks</h3><button class="btn-sm" onclick="App.showView('tasks')">View All</button></div>
+        <div id="todayTasks" class="task-mini-list"></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Open Issues</h3><button class="btn-sm" onclick="App.showView('issues')">View All</button></div>
+        <div id="openIssues" class="task-mini-list"></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Recent Activity</h3></div>
+        <div id="recentActivity" class="activity-list"></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Today's Standup</h3><button class="btn-sm" onclick="App.showView('standup')">Edit</button></div>
+        <div id="todayStandup" class="standup-preview"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tasks -->
+  <section class="view" id="view-tasks">
+    <div class="view-header">
+      <h1>Tasks</h1>
+      <div class="header-actions">
+        <input type="text" class="search-input" id="taskSearch" placeholder="Search tasks...">
+        <select class="filter-select" id="taskFilterProject"><option value="">All Projects</option></select>
+        <select class="filter-select" id="taskFilterStatus">
+          <option value="">All Status</option>
+          <option value="todo">To Do</option>
+          <option value="inprogress">In Progress</option>
+          <option value="done">Done</option>
+          <option value="blocked">Blocked</option>
+        </select>
+        <select class="filter-select" id="taskFilterPriority">
+          <option value="">All Priority</option>
+          <option value="critical">Critical</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+        <button class="btn-primary" onclick="App.openTaskModal()">+ New Task</button>
+      </div>
+    </div>
+    <div class="kanban-board" id="kanbanBoard"></div>
+  </section>
+
+  <!-- Projects -->
+  <section class="view" id="view-projects">
+    <div class="view-header">
+      <h1>Projects</h1>
+      <div class="header-actions">
+        <input type="text" class="search-input" id="projectSearch" placeholder="Search projects...">
+        <input type="text" class="search-input" id="reqMetaSearch" placeholder="Req metadata: key:value" style="width:190px" title="Filter projects by requirement metadata. Use key:value or plain text.">
+        <button class="btn-primary" onclick="App.openProjectModal()">+ New Project</button>
+      </div>
+    </div>
+    <div class="projects-grid" id="projectsGrid"></div>
+  </section>
+
+  <!-- Issues -->
+  <section class="view" id="view-issues">
+    <div class="view-header">
+      <h1>Issues</h1>
+      <div class="header-actions">
+        <input type="text" class="search-input" id="issueSearch" placeholder="Search issues...">
+        <select class="filter-select" id="issueFilterProject"><option value="">All Projects</option></select>
+        <select class="filter-select" id="issueFilterStatus">
+          <option value="">All Status</option>
+          <option value="open">Open</option>
+          <option value="inprogress">In Progress</option>
+          <option value="resolved">Resolved</option>
+          <option value="closed">Closed</option>
+          <option value="wontfix">Won't Fix</option>
+        </select>
+        <select class="filter-select" id="issueFilterType">
+          <option value="">All Types</option>
+          <option value="bug">Bug</option>
+          <option value="feature">Feature</option>
+          <option value="improvement">Improvement</option>
+          <option value="task">Task</option>
+          <option value="question">Question</option>
+        </select>
+        <select class="filter-select" id="issueFilterMetaKey" style="min-width:120px" title="Filter by metadata key">
+          <option value="">Meta Key…</option>
+        </select>
+        <input type="text" class="search-input" id="issueFilterMetaValue" placeholder="Meta value…" style="width:120px" disabled title="Enter a value to filter by">
+        <button class="btn-primary" onclick="App.openIssueModal()">+ New Issue</button>
+      </div>
+    </div>
+    <div class="table-container">
+      <table class="data-table" id="issuesTable">
+        <thead>
+          <tr>
+            <th>ID</th><th>Title</th><th>Type</th><th>Project</th>
+            <th>Priority</th><th>Status</th><th>Metadata</th><th>Created</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="issuesTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Time Log -->
+  <section class="view" id="view-timelog">
+    <div class="view-header">
+      <h1>Time Log</h1>
+      <div class="header-actions">
+        <input type="date" class="filter-select" id="timelogDate">
+        <select class="filter-select" id="timelogFilterProject"><option value="">All Projects</option></select>
+        <button class="btn-primary" onclick="App.openTimeLogModal()">+ Log Time</button>
+      </div>
+    </div>
+    <div class="timelog-summary" id="timelogSummary"></div>
+    <div class="table-container">
+      <table class="data-table" id="timelogTable">
+        <thead>
+          <tr><th>Date</th><th>Task/Description</th><th>Project</th><th>Duration</th><th>Notes</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="timelogTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Standup -->
+  <section class="view" id="view-standup">
+    <div class="view-header">
+      <h1>Standup Notes</h1>
+      <div class="header-actions">
+        <input type="date" class="filter-select" id="standupDate">
+        <button class="btn-primary" onclick="App.openStandupModal()">+ New Standup</button>
+      </div>
+    </div>
+    <div class="standup-list" id="standupList"></div>
+  </section>
+
+  <!-- Notes -->
+  <section class="view" id="view-notes">
+    <div class="view-header">
+      <h1>Dev Notes</h1>
+      <div class="header-actions">
+        <input type="text" class="search-input" id="noteSearch" placeholder="Search notes...">
+        <button class="btn-primary" onclick="App.openNoteModal()">+ New Note</button>
+      </div>
+    </div>
+    <div class="notes-grid" id="notesGrid"></div>
+  </section>
+
+</main>
+
+<!-- MODALS -->
+<div class="modal-overlay" id="modalOverlay" onclick="App.closeModal()"></div>
+
+<!-- Task Modal -->
+<div class="modal" id="taskModal">
+  <div class="modal-header">
+    <h2 id="taskModalTitle">New Task</h2>
+    <button class="modal-close" onclick="App.closeModal()">&#10005;</button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="taskId">
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Title *</label>
+        <input type="text" id="taskTitle" placeholder="Task title" required>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Description</label>
+        <textarea id="taskDesc" placeholder="Task description..." rows="3"></textarea>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Project</label>
+        <select id="taskProject"><option value="">No Project</option></select>
+      </div>
+      <div class="form-group">
+        <label>Priority</label>
+        <select id="taskPriority">
+          <option value="low">Low</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High</option>
+          <option value="critical">Critical</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Status</label>
+        <select id="taskStatus">
+          <option value="todo" selected>To Do</option>
+          <option value="inprogress">In Progress</option>
+          <option value="done">Done</option>
+          <option value="blocked">Blocked</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Due Date</label>
+        <input type="date" id="taskDueDate">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Estimated Hours</label>
+        <input type="number" id="taskEstHours" min="0" step="0.5" placeholder="0">
+      </div>
+      <div class="form-group">
+        <label>Tags (comma separated)</label>
+        <input type="text" id="taskTags" placeholder="frontend, api, urgent">
+      </div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-secondary" onclick="App.closeModal()">Cancel</button>
+    <button class="btn-primary" onclick="App.saveTask()">Save Task</button>
+  </div>
+</div>
+
+<!-- Project Modal -->
+<div class="modal" id="projectModal">
+  <div class="modal-header">
+    <h2 id="projectModalTitle">New Project</h2>
+    <button class="modal-close" onclick="App.closeModal()">&#10005;</button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="projectId">
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Project Name *</label>
+        <input type="text" id="projectName" placeholder="Project name">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Description</label>
+        <textarea id="projectDesc" placeholder="Project description..." rows="3"></textarea>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Status</label>
+        <select id="projectStatus">
+          <option value="active" selected>Active</option>
+          <option value="planning">Planning</option>
+          <option value="paused">Paused</option>
+          <option value="completed">Completed</option>
+          <option value="archived">Archived</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Due Date</label>
+        <input type="date" id="projectDueDate">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Repository URL</label>
+        <input type="text" id="projectRepo" placeholder="https://github.com/...">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Tech Stack (comma separated)</label>
+        <input type="text" id="projectStack" placeholder="React, Node.js, PostgreSQL">
+      </div>
+    </div>
+    <div class="requirements-section">
+      <div class="req-header">
+        <label>Requirements</label>
+        <button type="button" class="btn-sm" onclick="App.addRequirement()">+ Add</button>
+      </div>
+      <div id="requirementsList"></div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-secondary" onclick="App.closeModal()">Cancel</button>
+    <button class="btn-primary" onclick="App.saveProject()">Save Project</button>
+  </div>
+</div>
+
+<!-- Issue Modal -->
+<div class="modal" id="issueModal">
+  <div class="modal-header">
+    <h2 id="issueModalTitle">New Issue</h2>
+    <button class="modal-close" onclick="App.closeModal()">&#10005;</button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="issueId">
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Title *</label>
+        <input type="text" id="issueTitle" placeholder="Issue title">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Description</label>
+        <textarea id="issueDesc" placeholder="Describe the issue..." rows="4"></textarea>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Project</label>
+        <select id="issueProject"><option value="">No Project</option></select>
+      </div>
+      <div class="form-group">
+        <label>Type</label>
+        <select id="issueType">
+          <option value="bug" selected>Bug</option>
+          <option value="feature">Feature</option>
+          <option value="improvement">Improvement</option>
+          <option value="task">Task</option>
+          <option value="question">Question</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Priority</label>
+        <select id="issuePriority">
+          <option value="low">Low</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High</option>
+          <option value="critical">Critical</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Status</label>
+        <select id="issueStatus">
+          <option value="open" selected>Open</option>
+          <option value="inprogress">In Progress</option>
+          <option value="resolved">Resolved</option>
+          <option value="closed">Closed</option>
+          <option value="wontfix">Won't Fix</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Assignee</label>
+        <input type="text" id="issueAssignee" placeholder="Name or username">
+      </div>
+      <div class="form-group">
+        <label>Tags (comma separated)</label>
+        <input type="text" id="issueTags" placeholder="ui, backend, perf">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Steps to Reproduce</label>
+        <textarea id="issueSteps" placeholder="1. Go to...\n2. Click...\n3. See error" rows="3"></textarea>
+      </div>
+    </div>
+    <div class="meta-section">
+      <div class="meta-header">
+        <label>Metadata <span class="meta-hint">custom key=value fields (e.g. sprint, component, version)</span></label>
+        <button type="button" class="btn-sm" onclick="App.addIssueMeta()">+ Add Field</button>
+      </div>
+      <div id="issueMetaList"></div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-secondary" onclick="App.closeModal()">Cancel</button>
+    <button class="btn-primary" onclick="App.saveIssue()">Save Issue</button>
+  </div>
+</div>
+
+<!-- Time Log Modal -->
+<div class="modal" id="timelogModal">
+  <div class="modal-header">
+    <h2 id="timelogModalTitle">Log Time</h2>
+    <button class="modal-close" onclick="App.closeModal()">&#10005;</button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="timelogId">
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Description *</label>
+        <input type="text" id="timelogDesc" placeholder="What did you work on?">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Project</label>
+        <select id="timelogProject"><option value="">No Project</option></select>
+      </div>
+      <div class="form-group">
+        <label>Date *</label>
+        <input type="date" id="timelogEntryDate">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Hours *</label>
+        <input type="number" id="timelogHours" min="0" max="24" step="0.25" placeholder="0.0">
+      </div>
+      <div class="form-group">
+        <label>Category</label>
+        <select id="timelogCategory">
+          <option value="development">Development</option>
+          <option value="review">Code Review</option>
+          <option value="meeting">Meeting</option>
+          <option value="planning">Planning</option>
+          <option value="testing">Testing</option>
+          <option value="debugging">Debugging</option>
+          <option value="docs">Documentation</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Notes</label>
+        <textarea id="timelogNotes" placeholder="Additional notes..." rows="2"></textarea>
+      </div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-secondary" onclick="App.closeModal()">Cancel</button>
+    <button class="btn-primary" onclick="App.saveTimeLog()">Save Entry</button>
+  </div>
+</div>
+
+<!-- Standup Modal -->
+<div class="modal" id="standupModal">
+  <div class="modal-header">
+    <h2 id="standupModalTitle">Daily Standup</h2>
+    <button class="modal-close" onclick="App.closeModal()">&#10005;</button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="standupId">
+    <div class="form-row">
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" id="standupEntryDate">
+      </div>
+      <div class="form-group">
+        <label>Mood</label>
+        <select id="standupMood">
+          <option value="great">Great &#128512;</option>
+          <option value="good" selected>Good &#128578;</option>
+          <option value="okay">Okay &#128528;</option>
+          <option value="stressed">Stressed &#128543;</option>
+          <option value="blocked">Blocked &#128544;</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Yesterday — What did you complete?</label>
+        <textarea id="standupYesterday" placeholder="- Completed auth module&#10;- Fixed login bug #42" rows="4"></textarea>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Today — What will you work on?</label>
+        <textarea id="standupToday" placeholder="- Implement dashboard&#10;- Write unit tests" rows="4"></textarea>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Blockers — Any impediments?</label>
+        <textarea id="standupBlockers" placeholder="- Waiting for API keys&#10;- Need design review" rows="3"></textarea>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Goals for the week</label>
+        <textarea id="standupGoals" placeholder="Weekly goals..." rows="2"></textarea>
+      </div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-secondary" onclick="App.closeModal()">Cancel</button>
+    <button class="btn-primary" onclick="App.saveStandup()">Save Standup</button>
+  </div>
+</div>
+
+<!-- Note Modal -->
+<div class="modal" id="noteModal">
+  <div class="modal-header">
+    <h2 id="noteModalTitle">New Note</h2>
+    <button class="modal-close" onclick="App.closeModal()">&#10005;</button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="noteId">
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Title *</label>
+        <input type="text" id="noteTitle" placeholder="Note title">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Category</label>
+        <select id="noteCategory">
+          <option value="general">General</option>
+          <option value="snippet">Code Snippet</option>
+          <option value="learning">Learning</option>
+          <option value="idea">Idea</option>
+          <option value="meeting">Meeting</option>
+          <option value="reference">Reference</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Project</label>
+        <select id="noteProject"><option value="">No Project</option></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Content *</label>
+        <textarea id="noteContent" placeholder="Note content..." rows="8"></textarea>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label>Tags (comma separated)</label>
+        <input type="text" id="noteTags" placeholder="javascript, tips, api">
+      </div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-secondary" onclick="App.closeModal()">Cancel</button>
+    <button class="btn-primary" onclick="App.saveNote()">Save Note</button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
